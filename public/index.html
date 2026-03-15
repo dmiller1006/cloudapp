@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cloud Identifier</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      color: #333;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 24px 16px;
+    }
+
+    h1 {
+      text-align: center;
+      color: white;
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: rgba(255,255,255,0.8);
+      margin-bottom: 24px;
+      font-size: 15px;
+    }
+
+    .model-status {
+      text-align: center;
+      color: rgba(255,255,255,0.7);
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+    }
+
+    .capture-area {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4/3;
+      background: #f0f4f8;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px dashed #cbd5e0;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .capture-area:hover { border-color: #667eea; }
+    .capture-area.has-image { border: none; cursor: default; }
+
+    .capture-area video,
+    .capture-area img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .placeholder {
+      text-align: center;
+      color: #a0aec0;
+    }
+
+    .placeholder svg {
+      width: 48px;
+      height: 48px;
+      margin-bottom: 12px;
+      fill: #cbd5e0;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    button {
+      flex: 1;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+
+    button:active { transform: scale(0.97); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .btn-camera {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+    }
+
+    .btn-upload {
+      background: #edf2f7;
+      color: #4a5568;
+    }
+
+    .btn-identify {
+      background: linear-gradient(135deg, #48bb78, #38a169);
+      color: white;
+      display: none;
+    }
+
+    .btn-reset {
+      background: #fed7d7;
+      color: #c53030;
+      display: none;
+    }
+
+    .btn-reset.visible { display: block; }
+
+    .result {
+      margin-top: 20px;
+      display: none;
+    }
+
+    .result.visible { display: block; }
+
+    .result-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .cloud-type {
+      font-size: 22px;
+      font-weight: 700;
+      color: #2d3748;
+    }
+
+    .confidence-bar {
+      width: 100%;
+      height: 6px;
+      background: #e2e8f0;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+
+    .confidence-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.5s;
+    }
+
+    .confidence-fill.high { background: #48bb78; }
+    .confidence-fill.medium { background: #ecc94b; }
+    .confidence-fill.low { background: #fc8181; }
+
+    .confidence-label {
+      font-size: 12px;
+      color: #a0aec0;
+      margin-top: 2px;
+    }
+
+    .top-matches {
+      margin-bottom: 16px;
+    }
+
+    .match-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .match-name {
+      min-width: 120px;
+      color: #4a5568;
+      font-weight: 500;
+    }
+
+    .match-bar-bg {
+      flex: 1;
+      height: 8px;
+      background: #edf2f7;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .match-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea, #764ba2);
+      border-radius: 4px;
+      transition: width 0.5s;
+    }
+
+    .match-pct {
+      min-width: 36px;
+      text-align: right;
+      color: #a0aec0;
+      font-size: 12px;
+    }
+
+    .detail { margin-bottom: 14px; }
+    .detail-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #a0aec0;
+      letter-spacing: 0.5px;
+      margin-bottom: 3px;
+    }
+    .detail-value { font-size: 15px; line-height: 1.5; color: #4a5568; }
+
+    .loader {
+      display: none;
+      text-align: center;
+      padding: 30px;
+    }
+
+    .loader.visible { display: block; }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #e2e8f0;
+      border-top-color: #667eea;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 12px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error {
+      margin-top: 16px;
+      padding: 12px;
+      background: #fff5f5;
+      border-radius: 8px;
+      color: #c53030;
+      font-size: 14px;
+      display: none;
+    }
+
+    .error.visible { display: block; }
+
+    canvas { display: none; }
+    input[type="file"] { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Cloud Identifier</h1>
+    <p class="subtitle">Take or upload a photo of clouds to identify them</p>
+    <p class="model-status" id="modelStatus">Loading AI model...</p>
+
+    <div class="card">
+      <div class="capture-area" id="captureArea">
+        <div class="placeholder" id="placeholder">
+          <svg viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0012 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 000 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM19 18H6c-2.21 0-4-1.79-4-4s1.79-4 4-4h.71C7.37 7.69 9.48 6 12 6a5.5 5.5 0 015.35 4.16l.34 1.34H19c1.66 0 3 1.34 3 3s-1.34 3-3 3z"/></svg>
+          <p>Tap to take a photo or upload one</p>
+        </div>
+        <video id="video" autoplay playsinline style="display:none"></video>
+        <img id="preview" style="display:none" alt="Cloud photo">
+      </div>
+
+      <div class="buttons">
+        <button class="btn-camera" id="cameraBtn">Take Photo</button>
+        <button class="btn-upload" id="uploadBtn">Upload</button>
+        <button class="btn-identify" id="identifyBtn">Identify Cloud</button>
+        <button class="btn-reset" id="resetBtn">New Photo</button>
+      </div>
+
+      <div class="loader" id="loader">
+        <div class="spinner"></div>
+        <p>Analyzing clouds...</p>
+      </div>
+
+      <div class="error" id="error"></div>
+
+      <div class="result" id="result">
+        <div class="result-header">
+          <span class="cloud-type" id="cloudType"></span>
+        </div>
+
+        <div class="top-matches" id="topMatches"></div>
+
+        <div class="detail">
+          <div class="detail-label">Altitude</div>
+          <div class="detail-value" id="altitude"></div>
+        </div>
+        <div class="detail">
+          <div class="detail-label">Description</div>
+          <div class="detail-value" id="description"></div>
+        </div>
+        <div class="detail">
+          <div class="detail-label">Weather Outlook</div>
+          <div class="detail-value" id="weather"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+  <input type="file" id="fileInput" accept="image/*">
+
+  <script>
+    // ── Cloud knowledge base ──
+    const CLOUD_INFO = {
+      cirrus: {
+        name: "Cirrus",
+        altitude: "16,000 – 40,000 ft (high)",
+        description: "Thin, wispy, hair-like clouds made of ice crystals. They appear as delicate white filaments or patches high in the sky.",
+        weather: "Generally fair weather, but can indicate an approaching warm front if they thicken. Weather may change within 24 hours."
+      },
+      cirrostratus: {
+        name: "Cirrostratus",
+        altitude: "16,000 – 40,000 ft (high)",
+        description: "Thin, sheet-like clouds that cover large portions of the sky. Often create a halo around the sun or moon.",
+        weather: "Often precede rain or snow within 12–24 hours as a warm front approaches."
+      },
+      cirrocumulus: {
+        name: "Cirrocumulus",
+        altitude: "16,000 – 40,000 ft (high)",
+        description: "Small, white, rounded puffs in rows or rippled patterns. Sometimes called a 'mackerel sky' due to their fish-scale appearance.",
+        weather: "Generally fair but cold weather. Rarely last long. Can indicate approaching turbulence at altitude."
+      },
+      altocumulus: {
+        name: "Altocumulus",
+        altitude: "6,500 – 20,000 ft (mid-level)",
+        description: "White or gray patches, sheets, or layers of cloud with rounded masses or rolls. Larger elements than cirrocumulus.",
+        weather: "On a warm, humid morning, may signal thunderstorms by late afternoon. Generally indicate settled weather."
+      },
+      altostratus: {
+        name: "Altostratus",
+        altitude: "6,500 – 20,000 ft (mid-level)",
+        description: "Gray or blue-gray cloud sheets covering most or all of the sky. The sun may be dimly visible as through frosted glass.",
+        weather: "Usually indicate continuous rain or snow approaching within hours."
+      },
+      stratocumulus: {
+        name: "Stratocumulus",
+        altitude: "2,000 – 6,500 ft (low)",
+        description: "Low, lumpy, gray or white cloud layer with darker patches. Appear as rounded masses or rolls covering most of the sky.",
+        weather: "Light rain or drizzle possible, but often dry. One of the most common cloud types worldwide."
+      },
+      stratus: {
+        name: "Stratus",
+        altitude: "Surface – 6,500 ft (low)",
+        description: "Uniform gray cloud layer that often covers the entire sky like a blanket. Low-hanging with a flat, featureless base.",
+        weather: "Light drizzle or mist possible. Overcast but rarely heavy precipitation. Often burns off by afternoon."
+      },
+      cumulus: {
+        name: "Cumulus",
+        altitude: "2,000 – 6,500 ft (low, tops can extend higher)",
+        description: "Puffy, white clouds with flat bases and rounded tops, resembling cotton balls or cauliflower. Clearly defined edges.",
+        weather: "Fair weather when small (cumulus humilis). If they grow tall, can develop into cumulonimbus and thunderstorms."
+      },
+      cumulonimbus: {
+        name: "Cumulonimbus",
+        altitude: "2,000 – 60,000+ ft (low base, extreme vertical extent)",
+        description: "Massive, towering clouds with dark bases and anvil-shaped tops. The 'king of clouds' — can span the entire depth of the troposphere.",
+        weather: "Thunderstorms, heavy rain, hail, lightning, and potentially tornadoes. Dangerous aviation hazard."
+      },
+      nimbostratus: {
+        name: "Nimbostratus",
+        altitude: "2,000 – 10,000 ft (low to mid-level)",
+        description: "Thick, dark gray cloud layer that blocks out the sun completely. Appears formless and heavy with ragged edges.",
+        weather: "Steady, continuous moderate-to-heavy rain or snow, often lasting hours."
+      }
+    };
+
+    // ── Image analysis engine ──
+    function analyzeImage(canvas) {
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      const w = canvas.width;
+      const h = canvas.height;
+      const data = ctx.getImageData(0, 0, w, h).data;
+      const totalPixels = w * h;
+
+      // Compute per-pixel stats
+      let totalR = 0, totalG = 0, totalB = 0;
+      let totalBright = 0;
+      const brightnesses = new Float32Array(totalPixels);
+      const hues = new Float32Array(totalPixels);
+      const saturations = new Float32Array(totalPixels);
+
+      let bluePixels = 0;    // sky-blue pixels
+      let whitePixels = 0;   // bright white/gray pixels
+      let darkPixels = 0;    // dark pixels
+      let grayPixels = 0;    // neutral gray pixels
+
+      for (let i = 0; i < totalPixels; i++) {
+        const idx = i * 4;
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+        totalR += r; totalG += g; totalB += b;
+
+        const brightness = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
+        brightnesses[i] = brightness;
+        totalBright += brightness;
+
+        // HSL conversion for hue/saturation
+        const max = Math.max(r, g, b) / 255;
+        const min = Math.min(r, g, b) / 255;
+        const delta = max - min;
+        const lightness = (max + min) / 2;
+        let sat = 0, hue = 0;
+        if (delta > 0) {
+          sat = delta / (1 - Math.abs(2 * lightness - 1));
+          if (max === r / 255) hue = ((g / 255 - b / 255) / delta) % 6;
+          else if (max === g / 255) hue = (b / 255 - r / 255) / delta + 2;
+          else hue = (r / 255 - g / 255) / delta + 4;
+          hue = ((hue * 60) + 360) % 360;
+        }
+        hues[i] = hue;
+        saturations[i] = sat;
+
+        // Classify pixels
+        if (sat > 0.2 && hue > 180 && hue < 260 && brightness > 0.3) bluePixels++;
+        if (brightness > 0.85 && sat < 0.15) whitePixels++;
+        if (brightness < 0.3) darkPixels++;
+        if (brightness > 0.3 && brightness < 0.7 && sat < 0.12) grayPixels++;
+      }
+
+      const avgBright = totalBright / totalPixels;
+      const avgR = totalR / totalPixels;
+      const avgG = totalG / totalPixels;
+      const avgB = totalB / totalPixels;
+
+      // Brightness variance (texture measure)
+      let brightVar = 0;
+      for (let i = 0; i < totalPixels; i++) {
+        const diff = brightnesses[i] - avgBright;
+        brightVar += diff * diff;
+      }
+      brightVar /= totalPixels;
+
+      // Edge detection (Sobel-like) on downsampled grid
+      const step = Math.max(1, Math.floor(Math.sqrt(totalPixels / 10000)));
+      let edgeSum = 0, edgeCount = 0;
+      for (let y = step; y < h - step; y += step) {
+        for (let x = step; x < w - step; x += step) {
+          const c = brightnesses[y * w + x];
+          const l = brightnesses[y * w + (x - step)];
+          const r2 = brightnesses[y * w + (x + step)];
+          const t = brightnesses[(y - step) * w + x];
+          const b2 = brightnesses[(y + step) * w + x];
+          const gx = Math.abs(r2 - l);
+          const gy = Math.abs(b2 - t);
+          edgeSum += Math.sqrt(gx * gx + gy * gy);
+          edgeCount++;
+        }
+      }
+      const avgEdge = edgeCount > 0 ? edgeSum / edgeCount : 0;
+
+      // Texture: local variance in blocks
+      const blockSize = Math.max(8, Math.floor(Math.min(w, h) / 16));
+      let localVarSum = 0, blockCount = 0;
+      for (let by = 0; by < h - blockSize; by += blockSize) {
+        for (let bx = 0; bx < w - blockSize; bx += blockSize) {
+          let bSum = 0, bSum2 = 0, bN = 0;
+          for (let dy = 0; dy < blockSize; dy++) {
+            for (let dx = 0; dx < blockSize; dx++) {
+              const val = brightnesses[(by + dy) * w + (bx + dx)];
+              bSum += val;
+              bSum2 += val * val;
+              bN++;
+            }
+          }
+          const bMean = bSum / bN;
+          const bVar = bSum2 / bN - bMean * bMean;
+          localVarSum += bVar;
+          blockCount++;
+        }
+      }
+      const avgLocalVar = blockCount > 0 ? localVarSum / blockCount : 0;
+
+      // Top vs bottom brightness (vertical gradient)
+      let topBright = 0, bottomBright = 0;
+      const midY = Math.floor(h / 2);
+      for (let i = 0; i < totalPixels; i++) {
+        const y = Math.floor(i / w);
+        if (y < midY) topBright += brightnesses[i];
+        else bottomBright += brightnesses[i];
+      }
+      topBright /= (midY * w);
+      bottomBright /= ((h - midY) * w);
+
+      // Saturation stats
+      let avgSat = 0;
+      for (let i = 0; i < totalPixels; i++) avgSat += saturations[i];
+      avgSat /= totalPixels;
+
+      const blueRatio = bluePixels / totalPixels;
+      const whiteRatio = whitePixels / totalPixels;
+      const darkRatio = darkPixels / totalPixels;
+      const grayRatio = grayPixels / totalPixels;
+      const cloudCoverage = 1 - blueRatio; // rough approximation
+
+      return {
+        avgBright, brightVar, avgEdge, avgLocalVar,
+        avgR: avgR / 255, avgG: avgG / 255, avgB: avgB / 255,
+        blueRatio, whiteRatio, darkRatio, grayRatio,
+        cloudCoverage, topBright, bottomBright, avgSat
+      };
+    }
+
+    function classifyClouds(features, mobilenetPreds) {
+      const {
+        avgBright, brightVar, avgEdge, avgLocalVar,
+        blueRatio, whiteRatio, darkRatio, grayRatio,
+        cloudCoverage, topBright, bottomBright, avgSat
+      } = features;
+
+      // Check if this looks like a sky image using MobileNet
+      const skyKeywords = [
+        "sky", "cloud", "sunset", "sunrise", "volcano", "mountain",
+        "lakeside", "seashore", "promontory", "alp", "valley",
+        "thunderstorm", "lightning", "balloon", "parachute", "kite",
+        "aircraft", "airliner", "wing", "beacon", "dome", "stupa"
+      ];
+      const isSkyLikely = mobilenetPreds.some(p =>
+        skyKeywords.some(k => p.className.toLowerCase().includes(k))
+      ) || (blueRatio > 0.1 && avgBright > 0.4);
+
+      const scores = {};
+
+      // ── Cirrus: wispy, high bright, lots of blue sky, low coverage ──
+      scores.cirrus =
+        (blueRatio > 0.3 ? 0.3 : blueRatio * 0.8) +
+        (avgBright > 0.6 ? 0.2 : 0) +
+        (cloudCoverage < 0.5 ? 0.2 : 0) +
+        (avgEdge < 0.08 ? 0.15 : 0) +
+        (whiteRatio > 0.05 && whiteRatio < 0.35 ? 0.15 : 0);
+
+      // ── Cirrostratus: thin sheet, high bright, halo-like, high coverage ──
+      scores.cirrostratus =
+        (avgBright > 0.65 ? 0.25 : 0) +
+        (cloudCoverage > 0.6 ? 0.2 : 0) +
+        (brightVar < 0.03 ? 0.2 : 0) +
+        (avgSat < 0.15 ? 0.15 : 0) +
+        (whiteRatio > 0.3 ? 0.2 : 0);
+
+      // ── Cirrocumulus: small puffs, rippled, high bright ──
+      scores.cirrocumulus =
+        (avgBright > 0.55 ? 0.15 : 0) +
+        (avgLocalVar > 0.005 && avgLocalVar < 0.03 ? 0.3 : 0) +
+        (blueRatio > 0.15 ? 0.2 : 0) +
+        (avgEdge > 0.04 && avgEdge < 0.12 ? 0.2 : 0) +
+        (cloudCoverage > 0.3 && cloudCoverage < 0.8 ? 0.15 : 0);
+
+      // ── Altocumulus: mid-level puffs, moderate brightness, textured ──
+      scores.altocumulus =
+        (avgBright > 0.45 && avgBright < 0.75 ? 0.2 : 0) +
+        (avgLocalVar > 0.008 ? 0.25 : 0) +
+        (avgEdge > 0.05 ? 0.15 : 0) +
+        (cloudCoverage > 0.3 && cloudCoverage < 0.85 ? 0.2 : 0) +
+        (grayRatio > 0.1 ? 0.1 : 0) +
+        (blueRatio > 0.05 ? 0.1 : 0);
+
+      // ── Altostratus: gray sheet, dim sun, mid coverage ──
+      scores.altostratus =
+        (avgBright > 0.4 && avgBright < 0.65 ? 0.25 : 0) +
+        (brightVar < 0.02 ? 0.2 : 0) +
+        (cloudCoverage > 0.7 ? 0.2 : 0) +
+        (grayRatio > 0.2 ? 0.2 : 0) +
+        (avgEdge < 0.05 ? 0.15 : 0);
+
+      // ── Stratocumulus: low, lumpy, gray-white, covers sky ──
+      scores.stratocumulus =
+        (avgBright > 0.35 && avgBright < 0.7 ? 0.2 : 0) +
+        (avgLocalVar > 0.005 && avgLocalVar < 0.04 ? 0.2 : 0) +
+        (cloudCoverage > 0.5 ? 0.15 : 0) +
+        (grayRatio > 0.15 ? 0.15 : 0) +
+        (avgEdge > 0.03 && avgEdge < 0.1 ? 0.15 : 0) +
+        (whiteRatio > 0.05 ? 0.1 : 0) +
+        (darkRatio < 0.2 ? 0.05 : 0);
+
+      // ── Stratus: flat, uniform gray, low ──
+      scores.stratus =
+        (avgBright > 0.35 && avgBright < 0.65 ? 0.2 : 0) +
+        (brightVar < 0.01 ? 0.25 : 0) +
+        (avgEdge < 0.03 ? 0.2 : 0) +
+        (cloudCoverage > 0.85 ? 0.2 : 0) +
+        (grayRatio > 0.3 ? 0.15 : 0);
+
+      // ── Cumulus: puffy white, blue sky, distinct edges ──
+      scores.cumulus =
+        (whiteRatio > 0.15 ? 0.2 : 0) +
+        (blueRatio > 0.15 ? 0.2 : 0) +
+        (avgEdge > 0.08 ? 0.2 : 0) +
+        (avgBright > 0.55 ? 0.15 : 0) +
+        (cloudCoverage > 0.2 && cloudCoverage < 0.7 ? 0.15 : 0) +
+        (brightVar > 0.02 ? 0.1 : 0);
+
+      // ── Cumulonimbus: dark base, tall, dramatic contrast ──
+      scores.cumulonimbus =
+        (darkRatio > 0.15 ? 0.2 : 0) +
+        (brightVar > 0.04 ? 0.2 : 0) +
+        (Math.abs(topBright - bottomBright) > 0.15 ? 0.2 : 0) +
+        (avgEdge > 0.06 ? 0.15 : 0) +
+        (cloudCoverage > 0.5 ? 0.15 : 0) +
+        (topBright > bottomBright ? 0.1 : 0);
+
+      // ── Nimbostratus: dark, uniform, full coverage ──
+      scores.nimbostratus =
+        (avgBright < 0.45 ? 0.25 : 0) +
+        (darkRatio > 0.1 ? 0.15 : 0) +
+        (brightVar < 0.02 ? 0.2 : 0) +
+        (cloudCoverage > 0.85 ? 0.2 : 0) +
+        (avgEdge < 0.04 ? 0.15 : 0) +
+        (grayRatio > 0.2 ? 0.05 : 0);
+
+      // Boost scores based on MobileNet predictions
+      const predText = mobilenetPreds.map(p => p.className.toLowerCase()).join(" ");
+      if (predText.includes("thunderstorm") || predText.includes("lightning")) {
+        scores.cumulonimbus += 0.3;
+      }
+
+      // Normalize scores to percentages
+      const maxScore = Math.max(...Object.values(scores));
+      const sorted = Object.entries(scores)
+        .sort((a, b) => b[1] - a[1])
+        .map(([type, score]) => ({
+          type,
+          score,
+          pct: Math.round((score / maxScore) * 100)
+        }));
+
+      return { sorted, isSkyLikely };
+    }
+
+    // ── UI ──
+    const video = document.getElementById("video");
+    const preview = document.getElementById("preview");
+    const canvas = document.getElementById("canvas");
+    const placeholder = document.getElementById("placeholder");
+    const captureArea = document.getElementById("captureArea");
+    const cameraBtn = document.getElementById("cameraBtn");
+    const uploadBtn = document.getElementById("uploadBtn");
+    const identifyBtn = document.getElementById("identifyBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const fileInput = document.getElementById("fileInput");
+    const loader = document.getElementById("loader");
+    const errorEl = document.getElementById("error");
+    const resultEl = document.getElementById("result");
+    const modelStatus = document.getElementById("modelStatus");
+
+    let stream = null;
+    let cameraActive = false;
+    let imageDataUrl = null;
+    let model = null;
+
+    // Load MobileNet
+    (async () => {
+      try {
+        model = await mobilenet.load({ version: 2, alpha: 1.0 });
+        modelStatus.textContent = "AI model ready";
+        setTimeout(() => modelStatus.style.opacity = "0", 2000);
+      } catch (err) {
+        modelStatus.textContent = "Model failed to load — using image analysis only";
+      }
+    })();
+
+    cameraBtn.addEventListener("click", async () => {
+      if (cameraActive) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext("2d").drawImage(video, 0, 0);
+        imageDataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        stopCamera();
+        showPreview(imageDataUrl);
+      } else {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }
+          });
+          video.srcObject = stream;
+          video.style.display = "block";
+          placeholder.style.display = "none";
+          preview.style.display = "none";
+          cameraActive = true;
+          cameraBtn.textContent = "Snap";
+          hideResult();
+        } catch (err) {
+          showError("Camera access denied. Try uploading a photo instead.");
+        }
+      }
+    });
+
+    uploadBtn.addEventListener("click", () => fileInput.click());
+
+    fileInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        imageDataUrl = ev.target.result;
+        stopCamera();
+        showPreview(imageDataUrl);
+      };
+      reader.readAsDataURL(file);
+      fileInput.value = "";
+    });
+
+    captureArea.addEventListener("click", () => {
+      if (!cameraActive && !imageDataUrl) fileInput.click();
+    });
+
+    identifyBtn.addEventListener("click", identify);
+    resetBtn.addEventListener("click", reset);
+
+    function showPreview(src) {
+      preview.src = src;
+      preview.style.display = "block";
+      video.style.display = "none";
+      placeholder.style.display = "none";
+      captureArea.classList.add("has-image");
+      identifyBtn.style.display = "block";
+      resetBtn.classList.add("visible");
+      hideResult();
+    }
+
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+      cameraActive = false;
+      cameraBtn.textContent = "Take Photo";
+    }
+
+    function reset() {
+      stopCamera();
+      imageDataUrl = null;
+      preview.style.display = "none";
+      video.style.display = "none";
+      placeholder.style.display = "flex";
+      captureArea.classList.remove("has-image");
+      identifyBtn.style.display = "none";
+      resetBtn.classList.remove("visible");
+      hideResult();
+    }
+
+    function hideResult() {
+      resultEl.classList.remove("visible");
+      errorEl.classList.remove("visible");
+      loader.classList.remove("visible");
+    }
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.classList.add("visible");
+    }
+
+    async function identify() {
+      if (!imageDataUrl) return;
+      hideResult();
+      loader.classList.add("visible");
+      identifyBtn.disabled = true;
+
+      try {
+        // Draw image to canvas for analysis
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = imageDataUrl;
+        });
+
+        // Resize for analysis (keep reasonable)
+        const maxDim = 512;
+        let cw = img.width, ch = img.height;
+        if (cw > maxDim || ch > maxDim) {
+          const scale = maxDim / Math.max(cw, ch);
+          cw = Math.round(cw * scale);
+          ch = Math.round(ch * scale);
+        }
+        canvas.width = cw;
+        canvas.height = ch;
+        canvas.getContext("2d").drawImage(img, 0, 0, cw, ch);
+
+        // Run MobileNet if available
+        let mobilenetPreds = [];
+        if (model) {
+          mobilenetPreds = await model.classify(canvas, 5);
+        }
+
+        // Run image analysis
+        const features = analyzeImage(canvas);
+        const { sorted, isSkyLikely } = classifyClouds(features, mobilenetPreds);
+
+        loader.classList.remove("visible");
+
+        if (!isSkyLikely && sorted[0].score < 0.3) {
+          showError("This doesn't appear to be a photo of clouds or sky. Try pointing the camera up!");
+          identifyBtn.disabled = false;
+          return;
+        }
+
+        // Display results
+        const top = sorted[0];
+        const info = CLOUD_INFO[top.type];
+
+        document.getElementById("cloudType").textContent = info.name;
+        document.getElementById("altitude").textContent = info.altitude;
+        document.getElementById("description").textContent = info.description;
+        document.getElementById("weather").textContent = info.weather;
+
+        // Show top 3 matches
+        const matchesEl = document.getElementById("topMatches");
+        matchesEl.innerHTML = sorted.slice(0, 3).map(m => {
+          const mInfo = CLOUD_INFO[m.type];
+          const level = m.pct >= 80 ? "high" : m.pct >= 50 ? "medium" : "low";
+          return `
+            <div class="match-row">
+              <span class="match-name">${mInfo.name}</span>
+              <div class="match-bar-bg"><div class="match-bar" style="width:${m.pct}%"></div></div>
+              <span class="match-pct">${m.pct}%</span>
+            </div>`;
+        }).join("");
+
+        resultEl.classList.add("visible");
+      } catch (err) {
+        loader.classList.remove("visible");
+        showError("Failed to analyze image. Please try again.");
+        console.error(err);
+      }
+
+      identifyBtn.disabled = false;
+    }
+  </script>
+</body>
+</html>
